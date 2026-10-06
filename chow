@@ -1,15 +1,13 @@
 needsPackage "Resultants"
 
---I = ideal(x_1*x_2 + x_0*x_2 - x_0*x_1, x_1-x_3);
-
---degree(X)
-
+-- Extract the Stiefel coordinates (row span) of L
 rowspan = L -> (
     K = coefficientRing ring L;
     N = sub(jacobian gens trim L, K);
     transpose gens ker transpose N
 );
 
+-- Function to compute the reciprocal linear space
 reciprocalSpace = L -> (
     R = ring L;
     n = numgens R;
@@ -19,12 +17,14 @@ reciprocalSpace = L -> (
     saturate(invMap(L), P)
 );
 
+-- Function to extract the Plucker coordinates as a list
 pluckerListFromStiefel = M -> (
     d = min(numgens source M, numgens target M);
     pluckerMatrix = exteriorPower(d, M);
     flatten entries pluckerMatrix 
 );
 
+-- Function to calculate the LTDR for a reciprocal linear space
 ltdrOfReciprocal = L -> (
     R = ring L;
     K = coefficientRing R;
@@ -34,6 +34,7 @@ ltdrOfReciprocal = L -> (
     k = binomial(n-1, d-1);
     V = K^k;
     
+    -- Generate the coordinate ring of the Grassmannian
     G = Grass(d-1, n-1, K);
     pLList = pluckerListFromStiefel M;
 
@@ -42,17 +43,24 @@ ltdrOfReciprocal = L -> (
     vIndeces = subsets(toList(0..(n-2)), d-1);
 
     ltdr = matrix mutableMatrix(G, k, k);
+    
+    -- Check if the uniform case applies (no zero Plucker coordinates)
     if not member(0_K, pLList) then (
         for j from 0 to binomial(n,d) -1 do (
+            -- Check if n is in I (Macaulay2 is 0-indexed, so we check for n-1)
             if member(n-1, pIndeces#j) then (
                 vI = V_(j - binomial(n-1, d));
             )
             else (
+                -- Case where n is not in I
                 I = pIndeces#j;
                 vI = 0_V;
                 for l in I do(
                     Iwithoutl = delete(l, I);
-                    IListIndex = position(vIndeces, x -> x==Iwithoutl);                                        
+                    -- Find the position of I \setminus \{l\} in the index list
+                    IListIndex = position(vIndeces, x -> x==Iwithoutl);   
+
+                    -- Add the alternating sum components                                     
                     vI = vI + (-1)^(position(I, x -> x==l)) * V_IListIndex;                                  
                 );
             );
@@ -62,107 +70,7 @@ ltdrOfReciprocal = L -> (
     ltdr
 );
 
-lazyChowFormOfReciprocal = L -> (
-    R = ring L;
-    K = coefficientRing R;
-    n = dim R;
-    M = rowspan(L);
-    d = min(numgens source M, numgens target M);
-    k = binomial(n-1, d-1);
-    V = K^k;
-    
-    G = Grass(d-1, n-1, K);
-    pLList = pluckerListFromStiefel M;
-
-    pIndeces = subsets(toList(0..(n-1)), d);
-    vIndeces = subsets(toList(0..(n-2)), d-1);
-
-    chcowMatrix = matrix mutableMatrix(K, k, k);
-    if not member(0_K, pLList) then (
-        for j from 0 to binomial(n,d) -1 do (
-            if member(n-1, pIndeces#j) then (
-                vI = V_(j - binomial(n-1, d));
-            )
-            else (
-                I = pIndeces#j;
-                vI = 0_V;
-                for l in I do(
-                    Iwithoutl = delete(l, I);
-                    IListIndex = position(vIndeces, x -> x==Iwithoutl);                                        
-                    vI = vI + (-1)^(position(I, x -> x==l)) * V_IListIndex;                                  
-                );
-            );
-            jDual = position(pIndeces, x -> x == toList(0..(n-1)) - set pIndeces#j);
-            fract = (1 / pLList#j) * (gens G)#jDual * (-1)^(0.5*d*(d-1) + sum(pIndeces#j));
-            chcowMatrix = chcowMatrix + fract * matrix vI * transpose matrix vI;
-        );
-    );
-    det(chcowMatrix)    
-);
-
-stupidChowFormOfReciprocal = L -> (
-    phi = ltdrOfReciprocal(L);
-    R = ring L;
-    K = coefficientRing R;
-    n = dim R;
-    M = rowspan(L);
-    d = min(numgens source M, numgens target M);
-
-    G := Grass(d-1, n-1, K);
-    P := ambient G;
-
-    m := binomial(n,d);
-    r := binomial(n,n-d);
-
-    -- Polynomial ring in the beta-coordinates.
-    B := K[b_0..b_(r-1)];
-
-    -- Pluecker variables in the ambient polynomial ring
-    -- and beta variables in the same indexing order.
-    p := apply(m, i -> P_i);
-    b := apply(r, i -> B_i);
-
-    -- M2 orders the Pluecker variables according to subsets(n,d).
-    dSubs := subsets(n,d);
-    bdSubs := subsets(n,n-d);
-
-    -- Coefficients of the linear functional u |-> u wedge beta.
-    lambda := apply(dSubs, I -> (
-        Iset := set I;
-
-        -- complement of I, in increasing order
-        J := select(toList(0..n-1),
-                    j -> not member(j,Iset));
-
-        -- location of J among the beta coordinates
-        k := position(bdSubs,
-                      J,
-                      T -> T === J);
-
-        -- sign of
-        -- e_I wedge e_J = sign * e_0 wedge ... wedge e_(n-1)
-        s := (-1)^((1/2)*sum apply(#I, t -> I#t - t));
-
-        s * b#k
-        ));
-
-    -- Move the matrix to the ambient polynomial ring.
-    phiP := lift(phi,P);
-
-    -- Apply the linear functional entrywise.
-    phiBeta := matrix(B,
-        apply(entries phiP, row ->
-            apply(row, f ->
-                sum apply(m, i ->
-                    lambda#i * promote(diff(p#i,f),B)
-                )
-            )
-        )
-    );
-
-    (phiBeta, det phiBeta)
-);
-
+-- Main function to compute the Chow form using the LTDR
 chowFormOfReciprocal = L -> (
     R = ring L;
     K = coefficientRing R;
@@ -176,10 +84,11 @@ chowFormOfReciprocal = L -> (
     pIndeces = subsets(toList(0..(n-1)), d);
     pIndecesDual = subsets(toList(0..(n-1)), n-d);
 
-    ltdr = ltdrOfRecyprocal(L);
+    ltdr = ltdrOfReciprocal(L);
     GDual = Grass(n-d-1, n-1, K);
 
     imagesList = {};
+    -- Iterate through all Plucker coordinates to construct the wedge product
     for j from 0 to binomial(n,d)-1 do (
         jDual = toList(0..(n-1)) - set pIndeces#j;
         sI = (-1)^((1/2)*d*(d-1) + sum(pIndeces#j));
@@ -194,15 +103,11 @@ chowFormOfReciprocal = L -> (
 K = toField(QQ[i]/ideal(i^2+1));
 R = K[x_0..x_3];
 
-L1 = ideal(x_0+x_1-x_2,x_1-x_3);
-L2 = ideal(x_0-2*x_1+x_2, 2*x_0-3*x_1+x_3);
-ltdrOfReciprocal(L2)
+R = K[x_0, x_1, x_2];
+L1 = ideal(x_0-2*x_1+x_2);
 
-M = rowspan(L2);
-pluckerFromStiefel(M)
+M1 = matrix(R, {{1,0}, {1,1}, {1,2}, {1,3}});
+L2 = image M1;
 
-chowFormOfReciprocal(L2)
-chowForm(L2)
-
---M1 = matrix(R, {{1,0}, {0,1}, {1,1}, {0,1}})
---L1 = image M1
+chowForm(reciprocalSpace(L1))
+chowFormOfReciprocal(L1)
